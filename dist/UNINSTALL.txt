@@ -1,0 +1,42 @@
+===============================================
+AUTO SLIDESHOW CREATOR - UNINSTALLATION
+===============================================
+
+To remove the Auto Slideshow Creator extension, follow the
+instructions for your operating system below.
+
+macOS
+-----
+
+1. Open Finder
+2. Press Cmd+Shift+G (Go to Folder)
+3. Enter: ~/Library/Application Support/Adobe/CEP/extensions
+4. Delete the "AutoSlideshow" folder
+5. Restart Premiere Pro
+
+Optional - Remove debug mode setting:
+  Open Terminal and run:
+    defaults delete com.adobe.CSXS.11 PlayerDebugMode
+    defaults delete com.adobe.CSXS.12 PlayerDebugMode
+
+Windows
+-------
+
+1. Open File Explorer
+2. In the address bar, type: %APPDATA%\Adobe\CEP\extensions
+3. Press Enter
+4. Delete the "AutoSlideshow" folder
+5. Restart Premiere Pro
+
+Optional - Remove debug mode registry keys:
+  1. Press Win+R, type "regedit", press Enter
+  2. Navigate to: HKEY_CURRENT_USER\Software\Adobe\CSXS.11
+  3. Delete the "PlayerDebugMode" value (if present)
+  4. Navigate to: HKEY_CURRENT_USER\Software\Adobe\CSXS.12
+  5. Delete the "PlayerDebugMode" value (if present)
+
+Note: The PlayerDebugMode setting is used by other unsigned
+extensions too. Only remove it if you don't use any other
+third-party CEP extensions.
+
+===============================================

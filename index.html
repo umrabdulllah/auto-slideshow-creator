@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Auto Slideshow Creator</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #1e1e1e;
+            color: #e0e0e0;
+            padding: 16px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .version {
+            font-size: 10px;
+            font-weight: 500;
+            color: #666;
+            margin-left: 8px;
+        }
+
+        .help-icon {
+            margin-left: auto;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #2d2d2d;
+            color: #666;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .help-icon:hover {
+            background: #3d3d3d;
+            color: #e0e0e0;
+        }
+
+        .help-tooltip {
+            position: absolute;
+            top: 26px;
+            right: 0;
+            background: #2d2d2d;
+            border: 1px solid #3d3d3d;
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-size: 11px;
+            color: #888;
+            width: 200px;
+            z-index: 100;
+            display: none;
+            line-height: 1.6;
+        }
+
+        .help-tooltip.show {
+            display: block;
+        }
+
+        .help-tooltip strong {
+            color: #e0e0e0;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        /* Section */
+        .section {
+            margin-bottom: 12px;
+            padding: 12px;
+            background-color: #2d2d2d;
+            border-radius: 6px;
+        }
+
+        /* Button */
+        button {
+            background-color: #0078d4;
+            color: #ffffff;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: background-color 0.2s;
+            width: 100%;
+        }
+
+        button:hover {
+            background-color: #106ebe;
+        }
+
+        button:disabled {
+            background-color: #3a3a3a;
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        button.primary {
+            background-color: #107c10;
+        }
+
+        button.primary:hover {
+            background-color: #0e6b0e;
+        }
+
+        button.primary:disabled {
+            background-color: #3a3a3a;
+        }
+
+        /* Folder path */
+        .folder-path {
+            background-color: #1e1e1e;
+            padding: 8px 10px;
+            border-radius: 4px;
+            margin-top: 8px;
+            font-size: 12px;
+            color: #666;
+            min-height: 32px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .folder-path.has-path {
+            color: #4fc3f7;
+        }
+
+        .folder-icon {
+            opacity: 0.5;
+        }
+
+        .folder-path.has-path .folder-icon {
+            opacity: 1;
+        }
+
+        /* Preview row */
+        .preview-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        .preview-item {
+            flex: 1;
+            background-color: #1e1e1e;
+            padding: 8px 10px;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .preview-item.srt-item {
+            flex: 0 0 50px;
+        }
+
+        .preview-label {
+            font-size: 10px;
+            color: #666;
+            margin-bottom: 2px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .preview-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .preview-value.highlight {
+            color: #4caf50;
+        }
+
+        .preview-value.muted {
+            color: #555;
+        }
+
+        .srt-indicator {
+            font-size: 11px;
+            color: #555;
+        }
+
+        .srt-indicator.active {
+            color: #4caf50;
+        }
+
+        /* Settings toggle */
+        .settings-toggle {
+            background: #2d2d2d;
+            padding: 10px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            font-size: 12px;
+            transition: background 0.2s;
+            margin-bottom: 12px;
+        }
+
+        .settings-toggle:hover {
+            background: #353535;
+        }
+
+        .settings-label {
+            color: #888;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .settings-label strong {
+            color: #4fc3f7;
+        }
+
+        .expand-icon {
+            margin-left: auto;
+            color: #555;
+            font-size: 10px;
+            transition: transform 0.2s;
+        }
+
+        .settings-toggle.expanded .expand-icon {
+            transform: rotate(180deg);
+        }
+
+        .settings-content {
+            display: none;
+            padding: 0 12px 10px;
+            margin-top: -6px;
+            margin-bottom: 12px;
+        }
+
+        .settings-content.show {
+            display: block;
+        }
+
+        /* Select */
+        select {
+            width: 100%;
+            padding: 8px 10px;
+            background-color: #1e1e1e;
+            border: 1px solid #3d3d3d;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: #0078d4;
+        }
+
+        /* Status */
+        .status {
+            padding: 10px 12px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-size: 12px;
+            display: none;
+        }
+
+        .status.error {
+            background-color: #3d1e1e;
+            color: #ff8a80;
+            display: block;
+        }
+
+        .status.success {
+            background-color: #1e3d1e;
+            color: #81c784;
+            display: block;
+        }
+
+        .status.info {
+            background-color: #1e2d3d;
+            color: #4fc3f7;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Auto Slideshow Creator</h1>
+        <span class="version">v1.3.0</span>
+        <div class="help-icon" id="helpIcon">?
+            <div class="help-tooltip" id="helpTooltip">
+                <strong>Folder Structure</strong>
+                images/ (your images)<br>
+                voices/ (voiceover audio)<br>
+                *.srt (optional subtitles)
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <button id="selectFolderBtn">Select Folder</button>
+        <div id="folderPath" class="folder-path">
+            <span class="folder-icon">&#128193;</span>
+            <span id="folderName">No folder selected</span>
+        </div>
+    </div>
+
+    <div class="section" id="previewSection" style="display: none;">
+        <div class="preview-row">
+            <div class="preview-item">
+                <div class="preview-label">Images</div>
+                <div id="imageCount" class="preview-value">-</div>
+            </div>
+            <div class="preview-item">
+                <div class="preview-label">Duration</div>
+                <div id="voiceDuration" class="preview-value">-</div>
+            </div>
+            <div class="preview-item">
+                <div class="preview-label">Per Image</div>
+                <div id="secondsPerImage" class="preview-value highlight">-</div>
+            </div>
+            <div class="preview-item srt-item">
+                <div class="preview-label">SRT</div>
+                <div id="srtIndicator" class="srt-indicator">&#10005;</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="settings-toggle" id="settingsToggle">
+        <span class="settings-label">
+            <span>&#9881;</span>
+            <span id="frameRateDisplay"><strong>30</strong> fps</span>
+        </span>
+        <span class="expand-icon">&#9660;</span>
+    </div>
+    <div class="settings-content" id="settingsContent">
+        <select id="frameRate">
+            <option value="23.976">23.976 fps</option>
+            <option value="24">24 fps</option>
+            <option value="25">25 fps</option>
+            <option value="29.97">29.97 fps</option>
+            <option value="30" selected>30 fps</option>
+            <option value="60">60 fps</option>
+        </select>
+    </div>
+
+    <button id="createBtn" class="primary" disabled>Create Slideshow</button>
+
+    <div id="status" class="status"></div>
+
+    <script src="js/CSInterface.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
