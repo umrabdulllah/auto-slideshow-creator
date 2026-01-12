@@ -10,6 +10,56 @@
  */
 
 // ============================================================
+// DEBUG LOGGING
+// ============================================================
+
+var DEBUG_LOG_PATH = "/Users/umerabdullah/Documents/Projects/image-place-premiere/slideshow-debug.log";
+var debugLogLines = [];
+
+/**
+ * Initialize debug log - clears previous log
+ */
+function debugLogInit() {
+    debugLogLines = [];
+    debugLogLines.push("=".repeat(80));
+    debugLogLines.push("SLIDESHOW DEBUG LOG - " + new Date().toString());
+    debugLogLines.push("=".repeat(80));
+}
+
+/**
+ * Add a line to the debug log
+ */
+function debugLog(message) {
+    debugLogLines.push(message);
+}
+
+/**
+ * Write debug log to file
+ */
+function debugLogWrite() {
+    try {
+        var logFile = new File(DEBUG_LOG_PATH);
+        logFile.encoding = "UTF-8";
+        logFile.open("w");
+        logFile.write(debugLogLines.join("\n"));
+        logFile.close();
+    } catch (e) {
+        // Silently fail if can't write log
+    }
+}
+
+/**
+ * ES3 compatible string repeat
+ */
+String.prototype.repeat = function(count) {
+    var result = "";
+    for (var i = 0; i < count; i++) {
+        result += this;
+    }
+    return result;
+};
+
+// ============================================================
 // UTILITY FUNCTIONS
 // ============================================================
 
@@ -115,13 +165,13 @@ function getSequenceFrameRate(sequence) {
 
 /**
  * Calculate randomized durations using FRAME-BASED integer arithmetic
- * This eliminates floating-point accumulation errors that cause frame gaps
- * Guarantees: sum of all durations exactly equals totalDuration (frame-perfect)
+ * Returns frame counts (integers) to avoid floating-point accumulation errors
+ * Guarantees: sum of all frame counts exactly equals total frames
  * @param {number} totalDuration - Total duration to fill (voice duration in seconds)
  * @param {number} imageCount - Number of images to distribute time across
  * @param {number} maxVariation - Maximum variation from base duration (e.g., 2 for ±2 seconds)
  * @param {number} frameRate - Sequence frame rate (e.g., 30, 29.97, 60)
- * @returns {Array} Array of duration values in seconds (frame-aligned)
+ * @returns {Array} Array of frame counts (integers)
  */
 function calculateRandomDurations(totalDuration, imageCount, maxVariation, frameRate) {
     // Convert total duration to frames (integer)
@@ -177,13 +227,9 @@ function calculateRandomDurations(totalDuration, imageCount, maxVariation, frame
         frameCounts[imageCount - 1] += (totalFrames - newTotal);
     }
 
-    // Convert frames back to seconds (frame-aligned values)
-    var durations = [];
-    for (var d = 0; d < imageCount; d++) {
-        durations.push(frameCounts[d] / frameRate);
-    }
-
-    return durations;
+    // Return frame counts (integers) - NOT converted to seconds
+    // This avoids floating-point accumulation errors
+    return frameCounts;
 }
 
 /**
@@ -459,17 +505,31 @@ function createSlideshow(folderPath, maxVariation, preferredFrameRate) {
         error: null
     };
 
+    // Initialize debug logging
+    debugLogInit();
+    debugLog("createSlideshow() called");
+    debugLog("folderPath: " + folderPath);
+    debugLog("maxVariation: " + maxVariation);
+    debugLog("preferredFrameRate: " + preferredFrameRate);
+    debugLog("");
+
     try {
         // 1. Check for active sequence
         var sequence = app.project.activeSequence;
         if (!sequence) {
             result.error = "No active sequence. Please create or open a sequence first.";
+            debugLog("ERROR: " + result.error);
+            debugLogWrite();
             return JSON.stringify(result);
         }
+
+        debugLog("Sequence: " + sequence.name);
 
         // 2. Check for at least 2 video tracks
         if (sequence.videoTracks.numTracks < 2) {
             result.error = "Sequence needs at least 2 video tracks. Please add another video track.";
+            debugLog("ERROR: " + result.error);
+            debugLogWrite();
             return JSON.stringify(result);
         }
 
@@ -480,6 +540,12 @@ function createSlideshow(folderPath, maxVariation, preferredFrameRate) {
         } catch (e) {
             // Fall back to preferred frame rate
         }
+
+        debugLog("");
+        debugLog("SEQUENCE INFO:");
+        debugLog("  frameRate: " + frameRate);
+        debugLog("  timebase (ticksPerFrame): " + sequence.timebase);
+        debugLog("  TICKS_PER_SECOND constant: 254016000000");
 
         // 3. Get preview info (validates folder and gets file lists)
         var previewInfo = JSON.parse(getPreviewInfo(folderPath));
@@ -519,8 +585,14 @@ function createSlideshow(folderPath, maxVariation, preferredFrameRate) {
         // 6. Get voice duration
         var voiceOutPoint = voiceItem.getOutPoint();
         var voiceDuration = voiceOutPoint.seconds;
+        debugLog("");
+        debugLog("VOICE DURATION:");
+        debugLog("  voiceOutPoint.seconds: " + voiceDuration);
+        debugLog("  voiceOutPoint.ticks: " + voiceOutPoint.ticks);
         if (voiceDuration <= 0) {
             result.error = "Voice file has no duration or could not be read.";
+            debugLog("ERROR: " + result.error);
+            debugLogWrite();
             return JSON.stringify(result);
         }
 
@@ -538,9 +610,21 @@ function createSlideshow(folderPath, maxVariation, preferredFrameRate) {
             return JSON.stringify(result);
         }
 
-        // 8. Calculate randomized durations for each image (frame-aligned)
-        var durations = calculateRandomDurations(voiceDuration, imageItems.length, maxVariation, frameRate);
+        // 8. Calculate randomized frame counts for each image (integers)
+        var frameCounts = calculateRandomDurations(voiceDuration, imageItems.length, maxVariation, frameRate);
         var secondsPerImage = voiceDuration / imageItems.length; // Keep average for response
+
+        debugLog("");
+        debugLog("FRAME COUNTS CALCULATED:");
+        debugLog("  imageCount: " + imageItems.length);
+        debugLog("  secondsPerImage (avg): " + secondsPerImage);
+        var totalFrames = 0;
+        for (var fc = 0; fc < frameCounts.length; fc++) {
+            totalFrames += frameCounts[fc];
+        }
+        debugLog("  totalFrames: " + totalFrames);
+        debugLog("  expectedFrames: " + Math.round(voiceDuration * frameRate));
+        debugLog("  frameCounts: [" + frameCounts.join(", ") + "]");
 
         // 9. Place voice on audio track A1
         var audioTrack = sequence.audioTracks[0];
@@ -550,20 +634,115 @@ function createSlideshow(folderPath, maxVariation, preferredFrameRate) {
         var videoTrack1 = sequence.videoTracks[0]; // V1 - odd images (1, 3, 5...)
         var videoTrack2 = sequence.videoTracks[1]; // V2 - even images (2, 4, 6...)
 
-        var currentTime = 0;
+        // Use tick-based integer arithmetic to avoid floating-point accumulation errors
+        // Premiere Pro uses 254016000000 ticks per second internally
+        var TICKS_PER_SECOND = 254016000000;
+        var ticksPerFrame = sequence.timebase; // Ticks per frame from sequence
+
+        debugLog("");
+        debugLog("PLACEMENT LOOP:");
+        debugLog("  TICKS_PER_SECOND: " + TICKS_PER_SECOND);
+        debugLog("  ticksPerFrame: " + ticksPerFrame);
+        debugLog("");
+
+        var currentTicks = 0; // Track position in ticks (integer) - no floating point error
         for (var j = 0; j < imageItems.length; j++) {
             var targetTrack = (j % 2 === 0) ? videoTrack1 : videoTrack2;
-            var clipDuration = durations[j];
+            var trackName = (j % 2 === 0) ? "V1" : "V2";
+            var clipFrames = frameCounts[j];
+            var clipTicks = clipFrames * ticksPerFrame;
 
-            // Set the source in/out points for this image's duration
-            imageItems[j].setInPoint(0, 4); // 4 = kFourthsSecond
-            imageItems[j].setOutPoint(clipDuration, 4);
+            // Convert to seconds for setOutPoint API (second param 4 is mediaType, not time unit)
+            var clipDurationSeconds = clipTicks / TICKS_PER_SECOND;
 
-            // Place on timeline at current position
-            targetTrack.overwriteClip(imageItems[j], currentTime);
+            // Calculate position in seconds for placement
+            var positionSeconds = currentTicks / TICKS_PER_SECOND;
 
-            currentTime += clipDuration;
+            debugLog("Image " + (j + 1) + " (" + imageItems[j].name + "):");
+            debugLog("  track: " + trackName);
+            debugLog("  clipFrames: " + clipFrames);
+            debugLog("  clipTicks: " + clipTicks);
+            debugLog("  clipDurationSeconds: " + clipDurationSeconds);
+            debugLog("  currentTicks (before): " + currentTicks);
+            debugLog("  positionSeconds: " + positionSeconds);
+
+            // Convert ticks to EXACT frame-based seconds (avoid repeating decimals)
+            // clipFrames / frameRate gives exact frame-aligned seconds
+            var exactDurationSeconds = clipFrames / frameRate;
+            var exactPositionFrames = currentTicks / ticksPerFrame;
+            var exactPositionSeconds = exactPositionFrames / frameRate;
+
+            debugLog("  exactDurationSeconds: " + exactDurationSeconds);
+            debugLog("  exactPositionFrames: " + exactPositionFrames);
+            debugLog("  exactPositionSeconds: " + exactPositionSeconds);
+
+            // Set the source in/out points in seconds
+            imageItems[j].setInPoint(0, 4);
+            imageItems[j].setOutPoint(exactDurationSeconds, 4);
+
+            // Place on timeline using frame-based seconds
+            targetTrack.overwriteClip(imageItems[j], exactPositionSeconds);
+
+            currentTicks += clipTicks; // Integer addition - no accumulation error
+
+            debugLog("  currentTicks (after): " + currentTicks);
+            debugLog("  expectedEndSeconds: " + (currentTicks / TICKS_PER_SECOND));
+            debugLog("");
         }
+
+        // ============================================================
+        // POST-PLACEMENT GAP FIX
+        // Extend each clip's end to exactly meet the next clip's start
+        // This eliminates floating-point rounding gaps
+        // ============================================================
+        debugLog("");
+        debugLog("POST-PLACEMENT GAP FIX:");
+
+        // Small delay to ensure clips are fully placed
+        $.sleep(100);
+
+        // Collect all clips from both video tracks
+        var allTimelineClips = [];
+        for (var trackIdx = 0; trackIdx < 2; trackIdx++) {
+            var vTrack = (trackIdx === 0) ? videoTrack1 : videoTrack2;
+            for (var clipIdx = 0; clipIdx < vTrack.clips.numItems; clipIdx++) {
+                allTimelineClips.push(vTrack.clips[clipIdx]);
+            }
+        }
+
+        debugLog("  Found " + allTimelineClips.length + " clips");
+
+        // Sort clips by start time (in ticks for precision)
+        allTimelineClips.sort(function(a, b) {
+            return a.start.ticks - b.start.ticks;
+        });
+
+        // Extend each clip's end to meet the next clip's start
+        var gapsFixed = 0;
+        for (var ci = 0; ci < allTimelineClips.length - 1; ci++) {
+            var thisClip = allTimelineClips[ci];
+            var nextClip = allTimelineClips[ci + 1];
+
+            var thisEndTicks = thisClip.end.ticks;
+            var nextStartTicks = nextClip.start.ticks;
+            var gapTicks = nextStartTicks - thisEndTicks;
+
+            debugLog("  Clip " + (ci + 1) + ": end=" + thisEndTicks +
+                     ", next start=" + nextStartTicks + ", gap=" + gapTicks);
+
+            if (gapTicks > 0) {
+                // There's a gap - create new Time and extend clip
+                var newEnd = new Time();
+                newEnd.ticks = nextStartTicks;
+                thisClip.end = newEnd;
+                gapsFixed++;
+                debugLog("    FIXED: extended to " + nextStartTicks);
+            } else if (gapTicks < 0) {
+                debugLog("    OVERLAP detected (will be handled by Premiere)");
+            }
+        }
+
+        debugLog("  Total gaps fixed: " + gapsFixed);
 
         // 11. Place SRT as caption track (if exists)
         var srtInfo = getSrtFileInfo(folderPath);
@@ -587,8 +766,20 @@ function createSlideshow(folderPath, maxVariation, preferredFrameRate) {
         result.imageCount = imageItems.length;
         result.secondsPerImage = secondsPerImage;
 
+        debugLog("");
+        debugLog("SUCCESS!");
+        debugLog("  voiceDuration: " + voiceDuration);
+        debugLog("  imageCount: " + imageItems.length);
+        debugLog("  finalTicks: " + currentTicks);
+        debugLog("  finalSeconds: " + (currentTicks / TICKS_PER_SECOND));
+        debugLog("");
+        debugLog("Log file: " + DEBUG_LOG_PATH);
+        debugLogWrite();
+
     } catch (e) {
         result.error = "Error: " + e.toString();
+        debugLog("EXCEPTION: " + e.toString());
+        debugLogWrite();
     }
 
     return JSON.stringify(result);
