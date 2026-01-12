@@ -90,3 +90,26 @@ Auto Slideshow/
     ├── Voiceovers/
     └── Captions/
 ```
+
+## Releasing New Versions
+
+**IMPORTANT:** When the user asks to "push to git", "release", "publish", or similar - automatically perform all these steps:
+
+1. **Determine new version**: Increment patch version (e.g., 1.3.1 → 1.3.2) unless user specifies otherwise
+2. **Update version in THREE places**:
+   - `CSXS/manifest.xml` - `ExtensionBundleVersion="X.X.X"` attribute
+   - `CSXS/manifest.xml` - `<Extension Version="X.X.X"/>` element
+   - `index.html` - `<span class="version">vX.X.X</span>` display
+3. **Commit and push**:
+   ```bash
+   git add .
+   git commit -m "Bump version to X.X.X"
+   git push origin main
+   ```
+4. **Create and push tag** (triggers GitHub Actions release):
+   ```bash
+   git tag vX.X.X
+   git push origin vX.X.X
+   ```
+
+The GitHub Actions workflow at `.github/workflows/release.yml` will automatically build the ZIP and create a GitHub Release.

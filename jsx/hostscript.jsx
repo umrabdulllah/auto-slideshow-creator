@@ -101,62 +101,86 @@ function createSlideshowBins(projectFolderName) {
 }
 
 /**
- * Calculate randomized durations for images using zero-sum random offsets
- * Guarantees: sum of all durations exactly equals totalDuration
+ * Get sequence frame rate as a number
+ * @param {Sequence} sequence - The active sequence
+ * @returns {number} Frame rate (e.g., 29.97, 30, 60)
+ */
+function getSequenceFrameRate(sequence) {
+    // sequence.timebase returns ticks per frame
+    // 254016000000 ticks per second is Premiere's internal base
+    var ticksPerSecond = 254016000000;
+    var ticksPerFrame = sequence.timebase;
+    return ticksPerSecond / ticksPerFrame;
+}
+
+/**
+ * Calculate randomized durations using FRAME-BASED integer arithmetic
+ * This eliminates floating-point accumulation errors that cause frame gaps
+ * Guarantees: sum of all durations exactly equals totalDuration (frame-perfect)
  * @param {number} totalDuration - Total duration to fill (voice duration in seconds)
  * @param {number} imageCount - Number of images to distribute time across
  * @param {number} maxVariation - Maximum variation from base duration (e.g., 2 for ±2 seconds)
- * @returns {Array} Array of duration values in seconds
+ * @param {number} frameRate - Sequence frame rate (e.g., 30, 29.97, 60)
+ * @returns {Array} Array of duration values in seconds (frame-aligned)
  */
-function calculateRandomDurations(totalDuration, imageCount, maxVariation) {
-    var baseDuration = totalDuration / imageCount;
+function calculateRandomDurations(totalDuration, imageCount, maxVariation, frameRate) {
+    // Convert total duration to frames (integer)
+    var totalFrames = Math.round(totalDuration * frameRate);
+    var baseFrames = Math.floor(totalFrames / imageCount);
+    var extraFrames = totalFrames - (baseFrames * imageCount);
 
-    // Ensure maxVariation doesn't exceed 30% of base or make duration too short
-    var safeMaxVariation = Math.min(maxVariation, baseDuration * 0.3, baseDuration - 0.5);
-    if (safeMaxVariation < 0) safeMaxVariation = 0;
-
-    // If variation is 0 or only 1 image, return uniform durations
-    if (safeMaxVariation === 0 || imageCount === 1) {
-        var uniformDurations = [];
-        for (var u = 0; u < imageCount; u++) {
-            uniformDurations.push(baseDuration);
-        }
-        return uniformDurations;
-    }
-
-    // Generate random offsets for each image
-    var offsets = [];
-    var totalOffset = 0;
+    // Start with base frames for all images
+    var frameCounts = [];
     for (var i = 0; i < imageCount; i++) {
-        var offset = (Math.random() * 2 - 1) * safeMaxVariation;
-        offsets.push(offset);
-        totalOffset += offset;
+        frameCounts.push(baseFrames);
     }
 
-    // Subtract mean to make offsets sum to zero (guarantees exact total)
-    var meanOffset = totalOffset / imageCount;
-    for (var m = 0; m < imageCount; m++) {
-        offsets[m] = offsets[m] - meanOffset;
+    // Distribute extra frames evenly across first N images
+    for (var e = 0; e < extraFrames; e++) {
+        frameCounts[e]++;
     }
 
-    // Scale offsets if any exceed the safe bounds
-    var maxAbsOffset = 0;
-    for (var s = 0; s < imageCount; s++) {
-        if (Math.abs(offsets[s]) > maxAbsOffset) {
-            maxAbsOffset = Math.abs(offsets[s]);
+    // Calculate safe variation in frames
+    var maxVarFrames = Math.round(maxVariation * frameRate);
+    var minFrames = Math.max(Math.round(frameRate * 0.5), 1); // Min 0.5 seconds or 1 frame
+    var safeMaxVarFrames = Math.min(maxVarFrames, baseFrames - minFrames);
+    if (safeMaxVarFrames < 0) safeMaxVarFrames = 0;
+
+    // Apply random variation if enabled and more than 1 image
+    if (safeMaxVarFrames > 0 && imageCount > 1) {
+        // Generate random offsets (integers)
+        var offsets = [];
+        var totalOffset = 0;
+        for (var r = 0; r < imageCount; r++) {
+            var offset = Math.round((Math.random() * 2 - 1) * safeMaxVarFrames);
+            offsets.push(offset);
+            totalOffset += offset;
         }
-    }
-    if (maxAbsOffset > safeMaxVariation && maxAbsOffset > 0) {
-        var scale = safeMaxVariation / maxAbsOffset;
-        for (var k = 0; k < imageCount; k++) {
-            offsets[k] = offsets[k] * scale;
+
+        // Subtract mean (rounded) to balance offsets
+        var adjustment = Math.round(totalOffset / imageCount);
+        for (var a = 0; a < imageCount; a++) {
+            offsets[a] -= adjustment;
         }
+
+        // Apply offsets and track new total
+        var newTotal = 0;
+        for (var t = 0; t < imageCount; t++) {
+            frameCounts[t] += offsets[t];
+            // Ensure no negative or zero frame counts
+            if (frameCounts[t] < 1) frameCounts[t] = 1;
+            newTotal += frameCounts[t];
+        }
+
+        // Correct last image to ensure exact total frames
+        // This eliminates any remaining drift from rounding
+        frameCounts[imageCount - 1] += (totalFrames - newTotal);
     }
 
-    // Build final durations array
+    // Convert frames back to seconds (frame-aligned values)
     var durations = [];
     for (var d = 0; d < imageCount; d++) {
-        durations.push(baseDuration + offsets[d]);
+        durations.push(frameCounts[d] / frameRate);
     }
 
     return durations;
@@ -415,12 +439,17 @@ function importFilesToProject(filePaths) {
  * Create the slideshow on the timeline
  * @param {string} folderPath - Path to project folder
  * @param {number} maxVariation - Maximum duration variation in seconds (default: 2)
+ * @param {number} preferredFrameRate - Fallback frame rate if sequence rate unavailable (default: 30)
  * @returns {string} JSON result
  */
-function createSlideshow(folderPath, maxVariation) {
+function createSlideshow(folderPath, maxVariation, preferredFrameRate) {
     // Default to 2 seconds variation if not provided
     if (typeof maxVariation === 'undefined' || maxVariation === null) {
         maxVariation = 2;
+    }
+    // Default to 30fps if not provided
+    if (typeof preferredFrameRate === 'undefined' || preferredFrameRate === null) {
+        preferredFrameRate = 30;
     }
     var result = {
         success: false,
@@ -442,6 +471,14 @@ function createSlideshow(folderPath, maxVariation) {
         if (sequence.videoTracks.numTracks < 2) {
             result.error = "Sequence needs at least 2 video tracks. Please add another video track.";
             return JSON.stringify(result);
+        }
+
+        // 2b. Get sequence frame rate (use preferred as fallback)
+        var frameRate = preferredFrameRate;
+        try {
+            frameRate = getSequenceFrameRate(sequence);
+        } catch (e) {
+            // Fall back to preferred frame rate
         }
 
         // 3. Get preview info (validates folder and gets file lists)
@@ -501,8 +538,8 @@ function createSlideshow(folderPath, maxVariation) {
             return JSON.stringify(result);
         }
 
-        // 8. Calculate randomized durations for each image
-        var durations = calculateRandomDurations(voiceDuration, imageItems.length, maxVariation);
+        // 8. Calculate randomized durations for each image (frame-aligned)
+        var durations = calculateRandomDurations(voiceDuration, imageItems.length, maxVariation, frameRate);
         var secondsPerImage = voiceDuration / imageItems.length; // Keep average for response
 
         // 9. Place voice on audio track A1

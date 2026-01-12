@@ -335,9 +335,10 @@ function createSlideshowHandler() {
 
     var escapedPath = escapeForScript(currentFolderPath);
     var variation = parseFloat(variationSlider.value);
+    var frameRate = parseFloat(frameRateEl.value);
 
     csInterface.evalScript(
-        'createSlideshow("' + escapedPath + '", ' + variation + ')',
+        'createSlideshow("' + escapedPath + '", ' + variation + ', ' + frameRate + ')',
         function(result) {
             try {
                 var response = JSON.parse(result);
