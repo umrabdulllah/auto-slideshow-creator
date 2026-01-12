@@ -272,6 +272,42 @@
             border-color: #0078d4;
         }
 
+        /* Slider */
+        .slider-container {
+            margin-top: 10px;
+        }
+
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .slider-value {
+            color: #4fc3f7;
+            font-weight: 500;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 4px;
+            background: #1e1e1e;
+            border-radius: 2px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            background: #0078d4;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
         /* Status */
         .status {
             padding: 10px 12px;
@@ -347,6 +383,8 @@
         <span class="settings-label">
             <span>&#9881;</span>
             <span id="frameRateDisplay"><strong>30</strong> fps</span>
+            <span style="margin-left: 8px; color: #666;">|</span>
+            <span id="variationDisplay" style="margin-left: 8px;"><strong>±2</strong>s</span>
         </span>
         <span class="expand-icon">&#9660;</span>
     </div>
@@ -359,6 +397,13 @@
             <option value="30" selected>30 fps</option>
             <option value="60">60 fps</option>
         </select>
+        <div class="slider-container">
+            <div class="slider-label">
+                <span>Duration Variation</span>
+                <span class="slider-value" id="variationValue">±2.0s</span>
+            </div>
+            <input type="range" id="variationSlider" min="0" max="3" step="0.5" value="2">
+        </div>
     </div>
 
     <button id="createBtn" class="primary" disabled>Create Slideshow</button>

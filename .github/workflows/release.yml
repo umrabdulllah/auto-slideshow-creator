@@ -1,0 +1,56 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.4.0)'
+        required: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from manifest
+        id: version
+        run: |
+          VERSION=$(grep 'ExtensionBundleVersion=' CSXS/manifest.xml | sed 's/.*ExtensionBundleVersion="\([^"]*\)".*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Build distribution package
+        run: |
+          chmod +x build-dist.sh
+          ./build-dist.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoSlideshowCreator-v${{ steps.version.outputs.version }}
+          path: dist/AutoSlideshowCreator-v${{ steps.version.outputs.version }}.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: AutoSlideshowCreator-v${{ needs.build.outputs.version }}
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: AutoSlideshowCreator-v${{ needs.build.outputs.version }}.zip
+          generate_release_notes: true
+          name: Auto Slideshow Creator v${{ needs.build.outputs.version }}

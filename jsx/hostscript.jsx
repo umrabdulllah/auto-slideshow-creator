@@ -101,6 +101,68 @@ function createSlideshowBins(projectFolderName) {
 }
 
 /**
+ * Calculate randomized durations for images using zero-sum random offsets
+ * Guarantees: sum of all durations exactly equals totalDuration
+ * @param {number} totalDuration - Total duration to fill (voice duration in seconds)
+ * @param {number} imageCount - Number of images to distribute time across
+ * @param {number} maxVariation - Maximum variation from base duration (e.g., 2 for ±2 seconds)
+ * @returns {Array} Array of duration values in seconds
+ */
+function calculateRandomDurations(totalDuration, imageCount, maxVariation) {
+    var baseDuration = totalDuration / imageCount;
+
+    // Ensure maxVariation doesn't exceed 30% of base or make duration too short
+    var safeMaxVariation = Math.min(maxVariation, baseDuration * 0.3, baseDuration - 0.5);
+    if (safeMaxVariation < 0) safeMaxVariation = 0;
+
+    // If variation is 0 or only 1 image, return uniform durations
+    if (safeMaxVariation === 0 || imageCount === 1) {
+        var uniformDurations = [];
+        for (var u = 0; u < imageCount; u++) {
+            uniformDurations.push(baseDuration);
+        }
+        return uniformDurations;
+    }
+
+    // Generate random offsets for each image
+    var offsets = [];
+    var totalOffset = 0;
+    for (var i = 0; i < imageCount; i++) {
+        var offset = (Math.random() * 2 - 1) * safeMaxVariation;
+        offsets.push(offset);
+        totalOffset += offset;
+    }
+
+    // Subtract mean to make offsets sum to zero (guarantees exact total)
+    var meanOffset = totalOffset / imageCount;
+    for (var m = 0; m < imageCount; m++) {
+        offsets[m] = offsets[m] - meanOffset;
+    }
+
+    // Scale offsets if any exceed the safe bounds
+    var maxAbsOffset = 0;
+    for (var s = 0; s < imageCount; s++) {
+        if (Math.abs(offsets[s]) > maxAbsOffset) {
+            maxAbsOffset = Math.abs(offsets[s]);
+        }
+    }
+    if (maxAbsOffset > safeMaxVariation && maxAbsOffset > 0) {
+        var scale = safeMaxVariation / maxAbsOffset;
+        for (var k = 0; k < imageCount; k++) {
+            offsets[k] = offsets[k] * scale;
+        }
+    }
+
+    // Build final durations array
+    var durations = [];
+    for (var d = 0; d < imageCount; d++) {
+        durations.push(baseDuration + offsets[d]);
+    }
+
+    return durations;
+}
+
+/**
  * Extract folder name from a full path
  * @param {string} folderPath - Full path to folder
  * @returns {string} Just the folder name
@@ -352,9 +414,14 @@ function importFilesToProject(filePaths) {
 /**
  * Create the slideshow on the timeline
  * @param {string} folderPath - Path to project folder
+ * @param {number} maxVariation - Maximum duration variation in seconds (default: 2)
  * @returns {string} JSON result
  */
-function createSlideshow(folderPath) {
+function createSlideshow(folderPath, maxVariation) {
+    // Default to 2 seconds variation if not provided
+    if (typeof maxVariation === 'undefined' || maxVariation === null) {
+        maxVariation = 2;
+    }
     var result = {
         success: false,
         voiceDuration: 0,
@@ -434,29 +501,31 @@ function createSlideshow(folderPath) {
             return JSON.stringify(result);
         }
 
-        // 8. Calculate seconds per image
-        var secondsPerImage = voiceDuration / imageItems.length;
+        // 8. Calculate randomized durations for each image
+        var durations = calculateRandomDurations(voiceDuration, imageItems.length, maxVariation);
+        var secondsPerImage = voiceDuration / imageItems.length; // Keep average for response
 
         // 9. Place voice on audio track A1
         var audioTrack = sequence.audioTracks[0];
         audioTrack.overwriteClip(voiceItem, 0);
 
-        // 10. Place images alternating between V1 and V2
+        // 10. Place images alternating between V1 and V2 with individual durations
         var videoTrack1 = sequence.videoTracks[0]; // V1 - odd images (1, 3, 5...)
         var videoTrack2 = sequence.videoTracks[1]; // V2 - even images (2, 4, 6...)
 
         var currentTime = 0;
         for (var j = 0; j < imageItems.length; j++) {
             var targetTrack = (j % 2 === 0) ? videoTrack1 : videoTrack2;
+            var clipDuration = durations[j];
 
-            // Set the source in/out points for duration
+            // Set the source in/out points for this image's duration
             imageItems[j].setInPoint(0, 4); // 4 = kFourthsSecond
-            imageItems[j].setOutPoint(secondsPerImage, 4);
+            imageItems[j].setOutPoint(clipDuration, 4);
 
             // Place on timeline at current position
             targetTrack.overwriteClip(imageItems[j], currentTime);
 
-            currentTime += secondsPerImage;
+            currentTime += clipDuration;
         }
 
         // 11. Place SRT as caption track (if exists)

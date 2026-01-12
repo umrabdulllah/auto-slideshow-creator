@@ -24,6 +24,9 @@ var helpIcon = null;
 var helpTooltip = null;
 var settingsToggle = null;
 var settingsContent = null;
+var variationSlider = null;
+var variationValue = null;
+var variationDisplay = null;
 
 /**
  * Initialize the extension when DOM is ready
@@ -46,6 +49,9 @@ document.addEventListener('DOMContentLoaded', function() {
     helpTooltip = document.getElementById('helpTooltip');
     settingsToggle = document.getElementById('settingsToggle');
     settingsContent = document.getElementById('settingsContent');
+    variationSlider = document.getElementById('variationSlider');
+    variationValue = document.getElementById('variationValue');
+    variationDisplay = document.getElementById('variationDisplay');
 
     // Attach event listeners
     selectFolderBtn.addEventListener('click', selectFolderHandler);
@@ -71,6 +77,15 @@ document.addEventListener('DOMContentLoaded', function() {
     // Update frame rate display when changed
     frameRateEl.addEventListener('change', function() {
         frameRateDisplay.innerHTML = '<strong>' + this.value + '</strong> fps';
+    });
+
+    // Duration variation slider
+    variationSlider.addEventListener('input', function() {
+        var val = parseFloat(this.value);
+        variationValue.textContent = '±' + val.toFixed(1) + 's';
+        variationDisplay.innerHTML = '<strong>±' + val + '</strong>s';
+        // Update preview if we have duration info
+        updatePreviewWithVariation();
     });
 
     // Check if there's an active sequence
@@ -133,6 +148,20 @@ function padZero(num) {
 }
 
 /**
+ * Update preview display when variation slider changes
+ */
+function updatePreviewWithVariation() {
+    if (previewInfo && previewInfo.secondsPerImage) {
+        var variation = parseFloat(variationSlider.value);
+        if (variation > 0) {
+            secondsPerImageEl.textContent = previewInfo.secondsPerImage.toFixed(2) + 's (±' + variation + 's)';
+        } else {
+            secondsPerImageEl.textContent = previewInfo.secondsPerImage.toFixed(2) + 's';
+        }
+    }
+}
+
+/**
  * Extract folder name from full path
  */
 function extractFolderName(fullPath) {
@@ -163,25 +192,47 @@ function checkSequence() {
 
 /**
  * Handle folder selection
+ * Uses CEP native dialog API for better Windows experience
  */
 function selectFolderHandler() {
     clearStatus();
     resetPreview();
 
-    csInterface.evalScript('selectFolder()', function(result) {
-        if (result && result !== 'null' && result !== 'undefined') {
-            currentFolderPath = result;
+    // Use CEP's native file dialog API (better Windows experience)
+    if (window.cep && window.cep.fs && window.cep.fs.showOpenDialogEx) {
+        var result = window.cep.fs.showOpenDialogEx(
+            false,                    // allowMultipleSelection
+            true,                     // chooseDirectory (folder mode)
+            'Select Project Folder',  // title
+            '',                       // initialPath (empty = last used)
+            []                        // fileTypes (empty for folders)
+        );
 
-            // Show only folder name, full path in tooltip
-            var folderName = extractFolderName(result);
+        if (result.err === 0 && result.data && result.data.length > 0) {
+            var selectedPath = result.data[0];
+            currentFolderPath = selectedPath;
+
+            var folderName = extractFolderName(selectedPath);
             folderNameEl.textContent = folderName;
             folderPathEl.className = 'folder-path has-path';
-            folderPathEl.title = result; // Full path on hover
+            folderPathEl.title = selectedPath;
 
-            // Validate and get preview info
-            validateFolder(result);
+            validateFolder(selectedPath);
         }
-    });
+        // err !== 0 means dialog was cancelled - no action needed
+    } else {
+        // Fallback to ExtendScript for older CEP versions
+        csInterface.evalScript('selectFolder()', function(result) {
+            if (result && result !== 'null' && result !== 'undefined') {
+                currentFolderPath = result;
+                var folderName = extractFolderName(result);
+                folderNameEl.textContent = folderName;
+                folderPathEl.className = 'folder-path has-path';
+                folderPathEl.title = result;
+                validateFolder(result);
+            }
+        });
+    }
 }
 
 /**
@@ -241,7 +292,14 @@ function getAudioDurationForPreview(voicePath, imageCount, folderPath) {
                 var secondsPerImage = duration / imageCount;
 
                 voiceDurationEl.textContent = formatDuration(duration);
-                secondsPerImageEl.textContent = secondsPerImage.toFixed(2) + 's';
+
+                // Show seconds per image with variation indicator
+                var variation = parseFloat(variationSlider.value);
+                if (variation > 0) {
+                    secondsPerImageEl.textContent = secondsPerImage.toFixed(2) + 's (±' + variation + 's)';
+                } else {
+                    secondsPerImageEl.textContent = secondsPerImage.toFixed(2) + 's';
+                }
 
                 // Store duration for later
                 if (previewInfo) {
@@ -276,9 +334,10 @@ function createSlideshowHandler() {
     showStatus('Creating slideshow...', 'info');
 
     var escapedPath = escapeForScript(currentFolderPath);
+    var variation = parseFloat(variationSlider.value);
 
     csInterface.evalScript(
-        'createSlideshow("' + escapedPath + '")',
+        'createSlideshow("' + escapedPath + '", ' + variation + ')',
         function(result) {
             try {
                 var response = JSON.parse(result);
