@@ -1,12 +1,12 @@
 ===============================================
 AUTO SLIDESHOW CREATOR
 Adobe Premiere Pro Extension
-Version 1.3.0
+Version 1.3.5
 ===============================================
 
 REQUIREMENTS
 ------------
-- Adobe Premiere Pro 2021 or later (version 15.0+)
+- Adobe Premiere Pro 2020 or later (version 15.0+)
 - macOS or Windows
 
 INSTALLATION
@@ -20,10 +20,34 @@ macOS:
   4. Restart Premiere Pro
 
 Windows:
-  1. Double-click "install-windows.bat"
+  1. Double-click "install-windows.bat" (Run as Administrator if needed)
   2. If Windows SmartScreen appears, click "More info" then "Run anyway"
-  3. The installer will run - follow the prompts
+  3. The installer will auto-detect your Premiere Pro installation
   4. Restart Premiere Pro
+
+MANUAL INSTALLATION (Windows)
+-----------------------------
+If the installer doesn't work, manually copy the extension files to
+ONE of these locations:
+
+  User-level (recommended, no admin needed):
+    %APPDATA%\Adobe\CEP\extensions\AutoSlideshow\
+    (Usually: C:\Users\YourName\AppData\Roaming\Adobe\CEP\extensions\AutoSlideshow\)
+
+  System-level (inside Premiere Pro):
+    C:\Program Files\Adobe\Adobe Premiere Pro 2024\CEP\extensions\AutoSlideshow\
+    C:\Program Files\Adobe\Adobe Premiere Pro 2023\CEP\extensions\AutoSlideshow\
+
+  Then enable debug mode by running this in Command Prompt:
+    reg add "HKCU\Software\Adobe\CSXS.12" /v PlayerDebugMode /t REG_SZ /d 1 /f
+
+MANUAL INSTALLATION (macOS)
+---------------------------
+Copy extension files to:
+  ~/Library/Application Support/Adobe/CEP/extensions/AutoSlideshow/
+
+Then enable debug mode in Terminal:
+  defaults write com.adobe.CSXS.12 PlayerDebugMode 1
 
 ACCESSING THE EXTENSION
 -----------------------
