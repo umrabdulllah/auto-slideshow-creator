@@ -28,6 +28,14 @@ var variationSlider = null;
 var variationValue = null;
 var variationDisplay = null;
 
+// Export section DOM elements
+var exportHeader = null;
+var exportContent = null;
+var exportList = null;
+var exportCount = null;
+var refreshListBtn = null;
+var exportAllBtn = null;
+
 /**
  * Initialize the extension when DOM is ready
  */
@@ -86,6 +94,36 @@ document.addEventListener('DOMContentLoaded', function() {
         variationDisplay.innerHTML = '<strong>±' + val + '</strong>s';
         // Update preview if we have duration info
         updatePreviewWithVariation();
+    });
+
+    // Export section elements
+    exportHeader = document.getElementById('exportHeader');
+    exportContent = document.getElementById('exportContent');
+    exportList = document.getElementById('exportList');
+    exportCount = document.getElementById('exportCount');
+    refreshListBtn = document.getElementById('refreshListBtn');
+    exportAllBtn = document.getElementById('exportAllBtn');
+
+    // Export section toggle
+    exportHeader.addEventListener('click', function() {
+        exportHeader.classList.toggle('expanded');
+        exportContent.classList.toggle('show');
+        // Refresh list when opening
+        if (exportContent.classList.contains('show')) {
+            refreshExportList();
+        }
+    });
+
+    // Refresh button
+    refreshListBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        refreshExportList();
+    });
+
+    // Export all button
+    exportAllBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        exportAllHandler();
     });
 
     // Check if there's an active sequence
@@ -347,6 +385,8 @@ function createSlideshowHandler() {
                     var message = 'Done! ' + response.imageCount + ' images at ';
                     message += response.secondsPerImage.toFixed(2) + 's each.';
                     showStatus(message, 'success');
+                    // Refresh export list after creating slideshow
+                    refreshExportList();
                 } else {
                     showStatus('Error: ' + response.error, 'error');
                 }
@@ -358,4 +398,87 @@ function createSlideshowHandler() {
             createBtn.disabled = false;
         }
     );
+}
+
+// ============================================================
+// EXPORT FUNCTIONS
+// ============================================================
+
+/**
+ * Refresh the list of exportable slideshows
+ */
+function refreshExportList() {
+    csInterface.evalScript('getSlideshowList()', function(result) {
+        try {
+            var response = JSON.parse(result);
+
+            if (response.success) {
+                var slideshows = response.slideshows;
+                exportCount.textContent = '(' + slideshows.length + ')';
+
+                if (slideshows.length === 0) {
+                    exportList.innerHTML = '<div class="export-empty">No slideshows found</div>';
+                    exportAllBtn.disabled = true;
+                } else {
+                    var html = '';
+                    for (var i = 0; i < slideshows.length; i++) {
+                        html += '<div class="export-item">';
+                        html += '<span class="item-icon">&#9658;</span>';
+                        html += '<span class="item-name">' + escapeHtml(slideshows[i].name) + '</span>';
+                        html += '</div>';
+                    }
+                    exportList.innerHTML = html;
+                    exportAllBtn.disabled = false;
+                }
+            } else {
+                exportList.innerHTML = '<div class="export-empty">Error: ' + response.error + '</div>';
+                exportAllBtn.disabled = true;
+            }
+        } catch (e) {
+            exportList.innerHTML = '<div class="export-empty">Error loading list</div>';
+            exportAllBtn.disabled = true;
+        }
+    });
+}
+
+/**
+ * Escape HTML special characters
+ */
+function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+/**
+ * Handle export all slideshows button click
+ */
+function exportAllHandler() {
+    exportAllBtn.disabled = true;
+    showStatus('Exporting to Adobe Media Encoder...', 'info');
+
+    csInterface.evalScript('exportAllSlideshows()', function(result) {
+        try {
+            var response = JSON.parse(result);
+
+            if (response.success) {
+                var message = 'Queued ' + response.exported + ' slideshow(s) to AME.';
+                if (response.failed > 0) {
+                    message += ' (' + response.failed + ' failed)';
+                }
+                showStatus(message, 'success');
+            } else if (response.error) {
+                showStatus('Error: ' + response.error, 'error');
+            } else {
+                var errorMsg = response.errors && response.errors.length > 0
+                    ? response.errors.join(', ')
+                    : 'Unknown error';
+                showStatus('Export failed: ' + errorMsg, 'error');
+            }
+        } catch (e) {
+            showStatus('Error: ' + e.toString(), 'error');
+        }
+
+        exportAllBtn.disabled = false;
+    });
 }

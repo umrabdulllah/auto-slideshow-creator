@@ -10,10 +10,60 @@
  */
 
 // ============================================================
+// PLATFORM DETECTION HELPERS
+// ============================================================
+
+/**
+ * Check if running on Windows
+ * @returns {boolean} True if Windows, false otherwise
+ */
+function isWindows() {
+    return $.os.indexOf("Windows") !== -1;
+}
+
+/**
+ * Get the Windows system drive letter (e.g., "C:", "D:")
+ * Auto-detects regardless of volume label (e.g., "OS (C:)", "Windows (D:)")
+ * @returns {string} Drive letter with colon (e.g., "C:")
+ */
+function getWindowsSystemDrive() {
+    // Folder.system returns the Windows folder path (e.g., C:\Windows)
+    // Extract drive letter from it - works regardless of volume label
+    var systemPath = Folder.system.fsName;
+    return systemPath.substring(0, 2);
+}
+
+/**
+ * Get the path separator for the current platform
+ * @returns {string} "/" for macOS, "\\" for Windows
+ */
+function getPathSeparator() {
+    return isWindows() ? "\\" : "/";
+}
+
+// ============================================================
 // DEBUG LOGGING
 // ============================================================
 
-var DEBUG_LOG_PATH = "/Users/umerabdullah/Documents/Projects/image-place-premiere/slideshow-debug.log";
+/**
+ * Get the debug log file path (cross-platform)
+ * Uses user's app data folder instead of hardcoded path
+ * @returns {string} Path to debug log file
+ */
+function getDebugLogPath() {
+    var baseFolder = Folder.userData.fsName;
+    var sep = getPathSeparator();
+    var logFolder = baseFolder + sep + "AutoSlideshow";
+
+    // Create folder if it doesn't exist
+    var folder = new Folder(logFolder);
+    if (!folder.exists) {
+        folder.create();
+    }
+
+    return logFolder + sep + "slideshow-debug.log";
+}
+
 var debugLogLines = [];
 
 /**
@@ -38,7 +88,8 @@ function debugLog(message) {
  */
 function debugLogWrite() {
     try {
-        var logFile = new File(DEBUG_LOG_PATH);
+        var logPath = getDebugLogPath();
+        var logFile = new File(logPath);
         logFile.encoding = "UTF-8";
         logFile.open("w");
         logFile.write(debugLogLines.join("\n"));
@@ -760,6 +811,10 @@ function createSlideshow(folderPath, maxVariation, preferredFrameRate) {
             }
         }
 
+        // Write manifest for export functionality
+        var manifestWritten = writeSlideshowManifest(folderPath, projectFolderName, imageItems.length, voiceDuration);
+        debugLog("Manifest written: " + manifestWritten);
+
         // Success!
         result.success = true;
         result.voiceDuration = voiceDuration;
@@ -773,7 +828,7 @@ function createSlideshow(folderPath, maxVariation, preferredFrameRate) {
         debugLog("  finalTicks: " + currentTicks);
         debugLog("  finalSeconds: " + (currentTicks / TICKS_PER_SECOND));
         debugLog("");
-        debugLog("Log file: " + DEBUG_LOG_PATH);
+        debugLog("Log file: " + getDebugLogPath());
         debugLogWrite();
 
     } catch (e) {
@@ -847,4 +902,458 @@ function checkActiveSequence() {
     }
 
     return JSON.stringify(result);
+}
+
+// ============================================================
+// MANIFEST SYSTEM - Track source folders for export
+// ============================================================
+
+/**
+ * Escape a string for JSON output (ES3 compatible)
+ * @param {string} str - String to escape
+ * @returns {string} Escaped string
+ */
+function escapeJsonString(str) {
+    if (!str) return "";
+    return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+}
+
+/**
+ * Write slideshow manifest to source folder
+ * Stores metadata for later export back to source folder
+ * @param {string} folderPath - Source folder path
+ * @param {string} sequenceName - Name of the sequence
+ * @param {number} imageCount - Number of images
+ * @param {number} voiceDuration - Duration of voice in seconds
+ * @returns {boolean} Success status
+ */
+function writeSlideshowManifest(folderPath, sequenceName, imageCount, voiceDuration) {
+    try {
+        var manifestPath = folderPath + "/slideshow-manifest.json";
+        var manifestFile = new File(manifestPath);
+
+        var projectPath = "";
+        try {
+            projectPath = app.project.path || "";
+        } catch (e) {
+            projectPath = "";
+        }
+
+        var now = new Date();
+        var timestamp = now.getFullYear() + "-" +
+                       padZeroManifest(now.getMonth() + 1) + "-" +
+                       padZeroManifest(now.getDate()) + "T" +
+                       padZeroManifest(now.getHours()) + ":" +
+                       padZeroManifest(now.getMinutes()) + ":" +
+                       padZeroManifest(now.getSeconds());
+
+        // Build JSON manually (ES3 compatible - no JSON.stringify)
+        var jsonStr = "{\n";
+        jsonStr += '  "version": 1,\n';
+        jsonStr += '  "createdAt": "' + timestamp + '",\n';
+        jsonStr += '  "sequenceName": "' + escapeJsonString(sequenceName) + '",\n';
+        jsonStr += '  "projectPath": "' + escapeJsonString(projectPath) + '",\n';
+        jsonStr += '  "sourceFolder": "' + escapeJsonString(folderPath) + '",\n';
+        jsonStr += '  "imageCount": ' + imageCount + ',\n';
+        jsonStr += '  "voiceDuration": ' + voiceDuration + '\n';
+        jsonStr += "}";
+
+        manifestFile.encoding = "UTF-8";
+        manifestFile.open("w");
+        manifestFile.write(jsonStr);
+        manifestFile.close();
+
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function padZeroManifest(num) {
+    return num < 10 ? "0" + num : "" + num;
+}
+
+/**
+ * Read slideshow manifest from source folder
+ * @param {string} folderPath - Source folder path
+ * @returns {object|null} Manifest data or null if not found
+ */
+function readSlideshowManifest(folderPath) {
+    try {
+        var manifestPath = folderPath + "/slideshow-manifest.json";
+        var manifestFile = new File(manifestPath);
+
+        if (!manifestFile.exists) {
+            return null;
+        }
+
+        manifestFile.encoding = "UTF-8";
+        manifestFile.open("r");
+        var content = manifestFile.read();
+        manifestFile.close();
+
+        // Parse JSON using eval (ES3 compatible)
+        var manifest = eval("(" + content + ")");
+        return manifest;
+    } catch (e) {
+        return null;
+    }
+}
+
+// ============================================================
+// SEQUENCE DISCOVERY - Find extension-created sequences
+// ============================================================
+
+/**
+ * Get all sequences created by this extension
+ * Scans the Auto Slideshow bin structure and matches to sequences
+ * @returns {Array} Array of sequence info objects
+ */
+function getExtensionCreatedSequences() {
+    var results = [];
+    var rootBin = app.project.rootItem;
+
+    // Find "Auto Slideshow" bin
+    var autoSlideshowBin = null;
+    for (var i = 0; i < rootBin.children.numItems; i++) {
+        var item = rootBin.children[i];
+        if (item.type === 2 && item.name === "Auto Slideshow") {
+            autoSlideshowBin = item;
+            break;
+        }
+    }
+
+    if (!autoSlideshowBin) {
+        return results; // No slideshows created yet
+    }
+
+    // Iterate project subfolders in Auto Slideshow bin
+    for (var j = 0; j < autoSlideshowBin.children.numItems; j++) {
+        var projectBin = autoSlideshowBin.children[j];
+        if (projectBin.type !== 2) continue; // Not a bin
+
+        var projectName = projectBin.name;
+
+        // Find matching sequence by name
+        for (var k = 0; k < app.project.sequences.numSequences; k++) {
+            var seq = app.project.sequences[k];
+            if (seq.name === projectName) {
+                results.push({
+                    sequenceName: projectName,
+                    sequenceId: seq.sequenceID
+                });
+                break;
+            }
+        }
+    }
+
+    return results;
+}
+
+/**
+ * Get list of slideshows for UI display
+ * @returns {string} JSON with slideshow list
+ */
+function getSlideshowList() {
+    var result = {
+        success: true,
+        slideshows: [],
+        error: null
+    };
+
+    try {
+        var sequences = getExtensionCreatedSequences();
+
+        for (var i = 0; i < sequences.length; i++) {
+            result.slideshows.push({
+                name: sequences[i].sequenceName,
+                sequenceId: sequences[i].sequenceId
+            });
+        }
+    } catch (e) {
+        result.success = false;
+        result.error = e.toString();
+    }
+
+    return JSON.stringify(result);
+}
+
+// ============================================================
+// EXPORT FUNCTIONS - Export to Adobe Media Encoder
+// ============================================================
+
+/**
+ * Get the system H.264 preset path
+ * Tries to find a suitable H.264 preset on the system
+ * Auto-detects system drive on Windows regardless of volume label
+ * @returns {string|null} Path to preset or null if not found
+ */
+function getH264PresetPath() {
+    var presetLocations = [];
+
+    if (isWindows()) {
+        // Auto-detect Windows system drive (works with any volume label)
+        var sysDrive = getWindowsSystemDrive();
+
+        // Windows Adobe Media Encoder presets (2024, 2023, 2022)
+        presetLocations.push(sysDrive + "\\Program Files\\Adobe\\Adobe Media Encoder 2024\\MediaCoreServices\\MediaEncoderPresets\\h264\\Match Source - High bitrate.epr");
+        presetLocations.push(sysDrive + "\\Program Files\\Adobe\\Adobe Media Encoder 2023\\MediaCoreServices\\MediaEncoderPresets\\h264\\Match Source - High bitrate.epr");
+        presetLocations.push(sysDrive + "\\Program Files\\Adobe\\Adobe Media Encoder 2022\\MediaCoreServices\\MediaEncoderPresets\\h264\\Match Source - High bitrate.epr");
+
+        // Windows system presets folder
+        presetLocations.push(sysDrive + "\\ProgramData\\Adobe\\Common\\AME\\SystemPresets\\h264\\Match Source - High bitrate.epr");
+
+        // Windows user presets (using Folder.myDocuments for cross-user compatibility)
+        var docsPath = Folder.myDocuments.fsName;
+        presetLocations.push(docsPath + "\\Adobe\\Adobe Media Encoder\\14.0\\Presets\\Match Source - High bitrate.epr");
+        presetLocations.push(docsPath + "\\Adobe\\Adobe Media Encoder\\15.0\\Presets\\Match Source - High bitrate.epr");
+        presetLocations.push(docsPath + "\\Adobe\\Adobe Media Encoder\\24.0\\Presets\\Match Source - High bitrate.epr");
+    } else {
+        // macOS Adobe Media Encoder presets
+        presetLocations.push("/Applications/Adobe Media Encoder 2024/Adobe Media Encoder 2024.app/Contents/MediaCoreServices/MediaEncoderPresets/h264/Match Source - High bitrate.epr");
+        presetLocations.push("/Applications/Adobe Media Encoder 2023/Adobe Media Encoder 2023.app/Contents/MediaCoreServices/MediaEncoderPresets/h264/Match Source - High bitrate.epr");
+        presetLocations.push("/Applications/Adobe Media Encoder 2022/Adobe Media Encoder 2022.app/Contents/MediaCoreServices/MediaEncoderPresets/h264/Match Source - High bitrate.epr");
+
+        // macOS system presets folder
+        presetLocations.push("/Library/Application Support/Adobe/Common/AME/SystemPresets/h264/Match Source - High bitrate.epr");
+
+        // macOS user presets (using Folder.myDocuments for consistency)
+        var macDocsPath = Folder.myDocuments.fsName;
+        presetLocations.push(macDocsPath + "/Adobe/Adobe Media Encoder/14.0/Presets/Match Source - High bitrate.epr");
+        presetLocations.push(macDocsPath + "/Adobe/Adobe Media Encoder/15.0/Presets/Match Source - High bitrate.epr");
+        presetLocations.push(macDocsPath + "/Adobe/Adobe Media Encoder/24.0/Presets/Match Source - High bitrate.epr");
+    }
+
+    for (var i = 0; i < presetLocations.length; i++) {
+        var presetFile = new File(presetLocations[i]);
+        if (presetFile.exists) {
+            return presetFile.fsName;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Export a single sequence to Adobe Media Encoder
+ * @param {Sequence} sequence - The sequence to export
+ * @param {string} outputPath - Full path for output file (including .mp4)
+ * @returns {object} Result with success status and job ID
+ */
+function exportSequenceToAME(sequence, outputPath) {
+    var result = {
+        success: false,
+        jobId: null,
+        error: null
+    };
+
+    try {
+        // Launch AME if needed
+        app.encoder.launchEncoder();
+
+        // Give AME time to start
+        $.sleep(1000);
+
+        // Get preset path - try system preset first
+        var presetPath = getH264PresetPath();
+
+        // Queue the export
+        // Parameters: sequence, outputPath, presetPath, workAreaType (0=entire), removeOnComplete (1=yes)
+        var jobId = app.encoder.encodeSequence(
+            sequence,
+            outputPath,
+            presetPath,
+            0,  // Entire sequence
+            1   // Remove from queue when done
+        );
+
+        if (jobId && jobId !== "0" && jobId !== 0) {
+            result.success = true;
+            result.jobId = jobId;
+        } else {
+            result.error = "Failed to queue export job";
+        }
+
+    } catch (e) {
+        result.error = e.toString();
+    }
+
+    return result;
+}
+
+/**
+ * Export all slideshows created by this extension
+ * Each sequence is exported to its original source folder as an MP4
+ * @returns {string} JSON result with export status
+ */
+function exportAllSlideshows() {
+    var result = {
+        success: false,
+        exported: 0,
+        failed: 0,
+        total: 0,
+        jobs: [],
+        errors: []
+    };
+
+    try {
+        // Get all extension-created sequences
+        var sequences = getExtensionCreatedSequences();
+        result.total = sequences.length;
+
+        if (sequences.length === 0) {
+            result.error = "No slideshows found. Create a slideshow first.";
+            return JSON.stringify(result);
+        }
+
+        // Launch AME
+        app.encoder.launchEncoder();
+        $.sleep(1500); // Wait for AME to start
+
+        // Get preset path
+        var presetPath = getH264PresetPath();
+
+        // Process each sequence
+        for (var i = 0; i < sequences.length; i++) {
+            var seqInfo = sequences[i];
+
+            // Find the actual sequence object
+            var sequence = null;
+            for (var s = 0; s < app.project.sequences.numSequences; s++) {
+                if (app.project.sequences[s].name === seqInfo.sequenceName) {
+                    sequence = app.project.sequences[s];
+                    break;
+                }
+            }
+
+            if (!sequence) {
+                result.failed++;
+                result.errors.push("Sequence not found: " + seqInfo.sequenceName);
+                continue;
+            }
+
+            // Find source folder from manifest
+            // Search in Auto Slideshow bin for matching project and get source path
+            var sourceFolder = findSourceFolderForSequence(seqInfo.sequenceName);
+
+            if (!sourceFolder) {
+                // Fallback: export to user's desktop (cross-platform)
+                sourceFolder = Folder.desktop.fsName;
+            }
+
+            // Build output path (use platform-appropriate separator)
+            var sep = getPathSeparator();
+            var outputPath = sourceFolder + sep + seqInfo.sequenceName + ".mp4";
+
+            // Check if file exists and add timestamp if needed
+            var outFile = new File(outputPath);
+            if (outFile.exists) {
+                var ts = new Date().getTime();
+                outputPath = sourceFolder + sep + seqInfo.sequenceName + "_" + ts + ".mp4";
+            }
+
+            // Queue the export
+            var jobId = app.encoder.encodeSequence(
+                sequence,
+                outputPath,
+                presetPath,
+                0,  // Entire sequence
+                1   // Remove when done
+            );
+
+            if (jobId && jobId !== "0" && jobId !== 0) {
+                result.exported++;
+                result.jobs.push({
+                    sequenceName: seqInfo.sequenceName,
+                    jobId: "" + jobId,
+                    outputPath: outputPath
+                });
+            } else {
+                result.failed++;
+                result.errors.push("Failed to queue: " + seqInfo.sequenceName);
+            }
+        }
+
+        // Start the batch if we queued anything
+        if (result.exported > 0) {
+            app.encoder.startBatch();
+            result.success = true;
+        }
+
+    } catch (e) {
+        result.error = e.toString();
+    }
+
+    return JSON.stringify(result);
+}
+
+/**
+ * Find the source folder for a sequence by searching manifests
+ * @param {string} sequenceName - Name of the sequence
+ * @returns {string|null} Source folder path or null
+ */
+function findSourceFolderForSequence(sequenceName) {
+    // Search in Auto Slideshow bin for the Images subfolder
+    // and try to get the source path from an imported file
+    var rootBin = app.project.rootItem;
+
+    // Find "Auto Slideshow" bin
+    var autoSlideshowBin = null;
+    for (var i = 0; i < rootBin.children.numItems; i++) {
+        var item = rootBin.children[i];
+        if (item.type === 2 && item.name === "Auto Slideshow") {
+            autoSlideshowBin = item;
+            break;
+        }
+    }
+
+    if (!autoSlideshowBin) return null;
+
+    // Find the project bin matching sequence name
+    var projectBin = null;
+    for (var j = 0; j < autoSlideshowBin.children.numItems; j++) {
+        var pBin = autoSlideshowBin.children[j];
+        if (pBin.type === 2 && pBin.name === sequenceName) {
+            projectBin = pBin;
+            break;
+        }
+    }
+
+    if (!projectBin) return null;
+
+    // Find Images subfolder and get path from first image
+    for (var k = 0; k < projectBin.children.numItems; k++) {
+        var subBin = projectBin.children[k];
+        if (subBin.type === 2 && subBin.name === "Images") {
+            // Get first image item
+            if (subBin.children.numItems > 0) {
+                var firstItem = subBin.children[0];
+                try {
+                    var mediaPath = firstItem.getMediaPath();
+                    if (mediaPath) {
+                        // Extract parent folder (go up two levels: images folder, then project folder)
+                        // Detect separator used in the path
+                        var sep = mediaPath.indexOf("\\") !== -1 ? "\\" : "/";
+                        var pathParts = mediaPath.split(sep);
+                        // Remove filename and "images" folder
+                        pathParts.pop(); // Remove filename
+                        pathParts.pop(); // Remove "images"
+                        var sourceFolder = pathParts.join(sep);
+
+                        // Try to read manifest to verify
+                        var manifest = readSlideshowManifest(sourceFolder);
+                        if (manifest && manifest.sourceFolder) {
+                            return manifest.sourceFolder;
+                        }
+                        return sourceFolder;
+                    }
+                } catch (e) {
+                    // Continue to next item
+                }
+            }
+            break;
+        }
+    }
+
+    return null;
 }
